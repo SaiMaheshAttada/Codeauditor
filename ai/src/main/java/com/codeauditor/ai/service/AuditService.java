@@ -4,10 +4,10 @@ import com.codeauditor.ai.dto.AiAuditResult;
 import com.codeauditor.ai.dto.CodeAuditRequest;
 import com.codeauditor.ai.dto.CodeAuditResponse;
 import com.codeauditor.ai.entity.AuditHistory;
+import com.codeauditor.ai.exception.ResourceNotFoundException;
 import com.codeauditor.ai.repository.AuditHistoryRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -19,118 +19,63 @@ public class AuditService {
     private final ChatClient chatClient;
     private final AuditHistoryRepository auditHistoryRepository;
 
-
-    public AuditService(
-            ChatClient.Builder chatClientBuilder,
-            AuditHistoryRepository auditHistoryRepository) {
-
+    public AuditService(ChatClient.Builder chatClientBuilder, AuditHistoryRepository auditHistoryRepository) {
         this.chatClient = chatClientBuilder.build();
         this.auditHistoryRepository = auditHistoryRepository;
     }
 
+    public CodeAuditResponse auditCode(CodeAuditRequest request) {
+        // Enforce rigid structure via Spring AI's BeanOutputConverter
+        BeanOutputConverter<AiAuditResult> outputConverter = new BeanOutputConverter<>(AiAuditResult.class);
 
-    // Analyze code using Ollama and save result
-    public CodeAuditResponse auditCode(CodeAuditRequest request) throws JsonProcessingException {
+        String promptTemplate = """
+                Analyze the following Java code snippet for architectural defects, security risks, or code smells.
+                
+                Code Snippet to Analyze:
+                %s
+                
+                {format}
+                """;
 
+        String prompt = String.format(promptTemplate, request.getCode());
 
-        String prompt = """
-STRICT INSTRUCTION:
-
-Return ONLY VALID JSON.
-
-Example:
-
-{
-  "flaws":"Optional.get() used",
-  "risks":"NoSuchElementException",
-  "recommendations":"Use orElseThrow()"
-}
-
-Do NOT write:
-- Here is the analysis
-- Markdown
-- Explanations
-- Code blocks
-
-Analyze:
-
-%s
-""".formatted(request.getCode());
-
-
-        String aiResponse = chatClient
-                .prompt()
-                .user(prompt)
+        // Execute inference and natively parse object map
+        AiAuditResult aiResult = chatClient.prompt()
+                .user(userSpec -> userSpec.text(prompt).param("format", outputConverter.getFormat()))
                 .call()
-                .content();
-        ObjectMapper mapper = new ObjectMapper();
+                .entity(outputConverter);
 
-        AiAuditResult aiResult =
-                mapper.readValue(
-                        aiResponse,
-                        AiAuditResult.class
-                );
+        if (aiResult == null) {
+            throw new com.codeauditor.ai.exception.AIEngineException("Local Ollama inference engine failed to compute a structured code analysis.");
+        }
 
-
+        // Persist history log record
         AuditHistory audit = new AuditHistory();
-
         audit.setFileName(request.getFileName());
-
-        audit.setSourceCode(
-                request.getCode()
-        );
-
-        audit.setAuditResult(
-                aiResponse
-        );
-
-        audit.setCreatedAt(
-                LocalDateTime.now()
-        );
+        audit.setSourceCode(request.getCode());
+        audit.setAuditResult(String.format("Flaws: %s | Risks: %s", aiResult.getFlaws(), aiResult.getRisks()));
+        audit.setCreatedAt(LocalDateTime.now());
         auditHistoryRepository.save(audit);
-        CodeAuditResponse response =
-                new CodeAuditResponse(
-                        audit.getId(),
-                        audit.getFileName(),
-                        aiResult.getFlaws(),
-                        aiResult.getRisks(),
-                        aiResult.getRecommendations()
-                );
 
-        return response;
-
-
-        
+        return new CodeAuditResponse(
+                audit.getId(),
+                audit.getFileName(),
+                aiResult.getFlaws(),
+                aiResult.getRisks(),
+                aiResult.getRecommendations()
+        );
     }
 
-
-
-    // Get all audit history
-    public List<AuditHistory> getAllAudits(){
-
+    public List<AuditHistory> getAllAudits() {
         return auditHistoryRepository.findAll();
     }
 
-
-
-    // Get audit by ID
-    public AuditHistory getAuditById(Long id){
-
-        return auditHistoryRepository
-                .findById(id)
-                .orElseThrow(
-                        () -> new RuntimeException(
-                                "Audit not found with id : " + id
-                        )
-                );
+    public AuditHistory getAuditById(Long id) {
+        return auditHistoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Audit record not found with tracking id : " + id));
     }
 
-
-
-    // Delete audit
-    public void deleteAudit(Long id){
-
+    public void deleteAudit(Long id) {
         auditHistoryRepository.deleteById(id);
     }
-
 }
