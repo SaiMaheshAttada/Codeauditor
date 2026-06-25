@@ -3,6 +3,7 @@ package com.codeauditor.ai.dto;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -13,4 +14,5 @@ public class CodeAuditResponse {
     private String flaws;
     private String risks;
     private String recommendations;
+    private List<String> correctedCode; // Change this to a List of Strings
 }
