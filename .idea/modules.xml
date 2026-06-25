@@ -3,7 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/Codeauditor.iml" filepath="$PROJECT_DIR$/.idea/Codeauditor.iml" />
-      <module fileurl="file://$PROJECT_DIR$/ai/ai.iml" filepath="$PROJECT_DIR$/ai/ai.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/ai.iml" filepath="$PROJECT_DIR$/.idea/ai.iml" />
     </modules>
   </component>
 </project>
